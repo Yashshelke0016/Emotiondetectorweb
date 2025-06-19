@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Real-Time Emotion Detector</title>
+
+  <!-- Face-API.js CDN -->
+  <script src="https://unpkg.com/face-api.js@0.22.2/dist/face-api.min.js"></script>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #121212;
+      color: #e0e0e0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    h1 {
+      margin-bottom: 0.5rem;
+      font-size: 2.5rem;
+      color: #90caf9;
+    }
+
+    #status {
+      margin-bottom: 1.5rem;
+      font-size: 1rem;
+      color: #ffca28;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: row;
+      gap: 2rem;
+      align-items: flex-start;
+    }
+
+    .video-container {
+      position: relative;
+      width: 640px;
+      border: 2px solid #424242;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6);
+    }
+
+    video, canvas {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    .emotion-list {
+      min-width: 200px;
+      background: #1e1e1e;
+      border-radius: 12px;
+      padding: 1rem;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    }
+
+    .emotion-list h2 {
+      font-size: 1.2rem;
+      margin-bottom: 1rem;
+      color: #ffffff;
+      text-align: center;
+    }
+
+    .emotion-list ul {
+      list-style: none;
+      padding-left: 0;
+    }
+
+    .emotion-list li {
+      font-size: 0.95rem;
+      padding: 0.4rem 0;
+      border-bottom: 1px solid #333;
+      display: flex;
+      justify-content: space-between;
+      color: #b0bec5;
+    }
+  </style>
+</head>
+<body>
+  <h1>Real-Time Emotion Detector</h1>
+  <p id="status">Loading models… please wait.</p>
+
+  <div class="container">
+    <div class="video-container">
+      <video id="video" autoplay muted></video>
+      <canvas id="overlay"></canvas>
+    </div>
+    <div class="emotion-list">
+      <h2>Emotions</h2>
+      <ul id="emotionDisplay">
+        <li>Happy: <span id="happy">0%</span></li>
+        <li>Sad: <span id="sad">0%</span></li>
+        <li>Angry: <span id="angry">0%</span></li>
+        <li>Fearful: <span id="fearful">0%</span></li>
+        <li>Disgusted: <span id="disgusted">0%</span></li>
+        <li>Surprised: <span id="surprised">0%</span></li>
+        <li>Neutral: <span id="neutral">0%</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <script>
+    const video = document.getElementById('video');
+    const overlay = document.getElementById('overlay');
+    const statusText = document.getElementById('status');
+    const ctx = overlay.getContext('2d');
+
+    const MODEL_URL = './models';
+
+    Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+      faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL)
+    ])
+    .then(startVideo)
+    .catch(err => {
+      statusText.textContent = 'Error loading models: ' + err;
+    });
+
+    function startVideo() {
+      navigator.mediaDevices.getUserMedia({ video: {} })
+        .then(stream => {
+          video.srcObject = stream;
+          video.onloadedmetadata = () => {
+            video.play();
+            statusText.textContent = 'Models loaded. Detecting emotions…';
+            detectLoop();
+          };
+        })
+        .catch(err => {
+          statusText.textContent = 'Error accessing webcam: ' + err;
+        });
+    }
+
+    function updateEmotionList(expressions) {
+      for (const emotion in expressions) {
+        const el = document.getElementById(emotion);
+        if (el) {
+          el.textContent = `${(expressions[emotion] * 100).toFixed(0)}%`;
+        }
+      }
+    }
+
+    async function detectLoop() {
+      const displaySize = { width: video.videoWidth, height: video.videoHeight };
+      faceapi.matchDimensions(overlay, displaySize);
+
+      setInterval(async () => {
+        const detections = await faceapi.detectAllFaces(
+          video,
+          new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 })
+        ).withFaceExpressions();
+
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+        const resizedDetections = faceapi.resizeResults(detections, displaySize);
+
+        resizedDetections.forEach(det => {
+          const { x, y, width, height } = det.detection.box;
+
+          ctx.strokeStyle = '#00ff00'; // bright green box
+          ctx.lineWidth = 3;
+          ctx.strokeRect(x, y, width, height);
+
+          const expr = Object.entries(det.expressions)
+            .reduce((a, b) => (a[1] > b[1] ? a : b));
+
+          ctx.fillStyle = '#00ff00';
+          ctx.font = '16px Arial';
+          ctx.fillText(`${expr[0]} (${(expr[1] * 100).toFixed(0)}%)`, x + 4, y - 8);
+
+          updateEmotionList(det.expressions);
+        });
+      }, 100);
+    }
+  </script>
+</body>
+</html>
